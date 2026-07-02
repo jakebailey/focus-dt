@@ -20,8 +20,6 @@ import { FragmentOf, graphql, readFragment, ResultOf, type TadaDocumentNode } fr
 import { print } from "graphql";
 import { Octokit } from "octokit";
 
-const MAX_EXCLUDE_TIMEOUT = 1000 * 60 * 60 * 24 * 7; // check back at least once every 7 days...
-
 async function collectPaginated<TResponse, TItem>(
     iterator: AsyncIterable<TResponse>,
     selectItems: (response: TResponse) => Iterable<TItem | null | undefined>
@@ -481,10 +479,10 @@ export class ProjectService<K extends string> {
         return this._columns;
     }
 
-    shouldSkip(pull: Pull, exclude?: Map<number, number>) {
+    shouldSkip(pull: Pull, exclude?: Map<number, number>, skipTimeout = 10 * 60 * 1000) {
         let excludeTimestamp = exclude?.get(pull.number);
         if (!excludeTimestamp) return false; // not excluded
-        if (Date.now() >= (excludeTimestamp + MAX_EXCLUDE_TIMEOUT)) return false; // past the skip window
+        if (Date.now() >= (excludeTimestamp + skipTimeout)) return false; // past the skip window
         const skipUntil = new Date(excludeTimestamp).toISOString();
         const lastUpdate = pull.lastUpdatedAt || pull.updatedAt;
         return lastUpdate < skipUntil; // updated since we skipped
@@ -569,8 +567,8 @@ export class ProjectService<K extends string> {
      * @param includeWip Whether to include PRs marked WIP
      * @param exclude A map of PR numbers to exclude to the Date they were excluded (in milliseconds since the UNIX epoch)
      */
-    async getPullFromCard(card: Card, includeDrafts?: boolean, includeWip?: boolean, exclude?: Map<number, number>): Promise<GetPullResult> {
-        return this.getPull(card.content.number, includeDrafts, includeWip, exclude);
+    async getPullFromCard(card: Card, includeDrafts?: boolean, includeWip?: boolean, exclude?: Map<number, number>, skipTimeout?: number): Promise<GetPullResult> {
+        return this.getPull(card.content.number, includeDrafts, includeWip, exclude, skipTimeout);
     }
 
     /**
@@ -580,13 +578,13 @@ export class ProjectService<K extends string> {
      * @param includeWip Whether to include PRs marked WIP
      * @param exclude A map of PR numbers to exclude to the Date they were excluded (in milliseconds since the UNIX epoch)
      */
-    async getPull(pull_number: number, includeDrafts?: boolean, includeWip?: boolean, exclude?: Map<number, number>): Promise<GetPullResult> {
+    async getPull(pull_number: number, includeDrafts?: boolean, includeWip?: boolean, exclude?: Map<number, number>, skipTimeout?: number): Promise<GetPullResult> {
         const response = await this._graphql(PullRequestQuery, { ...this._ownerAndRepo, pull_number });
         const pull = readFragment(PullRequestFragment, response.repository?.pullRequest) as Pull | undefined;
-        return await this.finishGetPull(pull, pull_number, includeDrafts, includeWip, exclude);
+        return await this.finishGetPull(pull, pull_number, includeDrafts, includeWip, exclude, skipTimeout);
     }
 
-    private async finishGetPull(pull: Pull | undefined, pull_number: number, includeDrafts?: boolean, includeWip?: boolean, exclude?: Map<number, number>): Promise<GetPullResult> {
+    private async finishGetPull(pull: Pull | undefined, pull_number: number, includeDrafts?: boolean, includeWip?: boolean, exclude?: Map<number, number>, skipTimeout?: number): Promise<GetPullResult> {
         if (!pull) {
             return { error: true, message: `PR ${pull_number} not found` };
         }
@@ -640,7 +638,7 @@ export class ProjectService<K extends string> {
                 lastCommitDate > lastCommentDate ? lastCommitDate :
                     pull.updatedAt;
 
-        if (this.shouldSkip(pull, exclude)) {
+        if (this.shouldSkip(pull, exclude, skipTimeout)) {
             return { error: true, message: `'${pull.title.trim()}' was previously skipped` };
         }
 

@@ -26,7 +26,7 @@ import { createFilterPrompt } from "./prompts/filter.js";
 import { createMergePrompt } from "./prompts/merge.js";
 import { createRunDownPrompt } from "./prompts/runDown.js";
 import { Screen } from "./screen.js";
-import { readSkipped } from "./settings.js";
+import { readSkipped, saveSkipped } from "./settings.js";
 
 async function main() {
     process.title = "focus-dt";
@@ -167,7 +167,7 @@ async function main() {
                 screen.render();
             }
 
-            const result = await service.getPullFromCard(card.card, settings.draft, settings.wip, settings.skipped ? undefined : context.skipped);
+            const result = await service.getPullFromCard(card.card, settings.draft, settings.wip, settings.skipped ? undefined : context.skipped, context.skipTimeout);
             if (result.error) {
                 screen.addLog(`[${column.offset}/${column.cards.length}] ${result.message}, skipping.`);
                 screen.render();
@@ -178,11 +178,15 @@ async function main() {
 
             const { pull, labels } = result;
 
-            // If we previously skipped this pull and it has been updated since it was last skipped, remove it from the list of skipped PRs.
+            // If we previously skipped this pull and it is visible again, remove it from the list of skipped PRs.
             const skippedTimestamp = context.skipped.get(pull.number);
-            const skipMessage = skippedTimestamp && !service.shouldSkip(pull, context.skipped) ?
+            const skipMessage = skippedTimestamp ?
                 chalk`, {yellow skipped}: ${new Date(skippedTimestamp).toISOString().replace(/\.\d+Z$/, "Z")}` :
                 "";
+            if (skippedTimestamp && !service.shouldSkip(pull, context.skipped, context.skipTimeout)) {
+                context.skipped.delete(pull.number);
+                saveSkipped(context.skipped);
+            }
             context.currentPull = pull;
             screen.clearPull();
             screen.addPull(`[${column.offset}/${column.cards.length}] ${pull.title}`);
