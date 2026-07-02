@@ -18,10 +18,35 @@ import type { IssuesListCommentsResponseItem, Options, ProjectsListForRepoRespon
 import type { RequestParameters } from "@octokit/graphql/types";
 import { FragmentOf, graphql, readFragment, ResultOf, type TadaDocumentNode } from "gql.tada";
 import { print } from "graphql";
-import { AsyncQuery, fn, from, fromAsync } from "iterable-query";
 import { Octokit } from "octokit";
 
 const MAX_EXCLUDE_TIMEOUT = 1000 * 60 * 60 * 24 * 7; // check back at least once every 7 days...
+
+async function collectPaginated<TResponse, TItem>(
+    iterator: AsyncIterable<TResponse>,
+    selectItems: (response: TResponse) => Iterable<TItem | null | undefined>
+) {
+    const items: TItem[] = [];
+    for await (const response of iterator) {
+        for (const item of selectItems(response)) {
+            if (item) items.push(item);
+        }
+    }
+    return items;
+}
+
+function distinctBy<T, K>(items: T[], key: (item: T) => K) {
+    const result: T[] = [];
+    const seen = new Set<K>();
+    for (const item of items) {
+        const value = key(item);
+        if (!seen.has(value)) {
+            seen.add(value);
+            result.push(item);
+        }
+    }
+    return result;
+}
 
 /** A GitHub Project Board */
 export interface Project extends ProjectsListForRepoResponseItem { }
@@ -226,8 +251,14 @@ export class ProjectService<K extends string> {
 
     private static getOwnerReviewsCore(reviews: Review[] | null | undefined, botData: BotData | undefined, since?: string) {
         if (!reviews || !botData) return undefined;
-        const reviewsByUser = new Map(from(reviews)
-            .groupBy(review => review.user?.login || "", fn.identity, (login, reviews) => [login, ProjectService.latestReviews(reviews.toArray())?.[0]]));
+        const groupedReviews = new Map<string, Review[]>();
+        for (const review of reviews) {
+            const login = review.user?.login || "";
+            const userReviews = groupedReviews.get(login);
+            if (userReviews) userReviews.push(review);
+            else groupedReviews.set(login, [review]);
+        }
+        const reviewsByUser = new Map([...groupedReviews].map(([login, reviews]) => [login, ProjectService.latestReviews(reviews)?.[0]]));
         const ownerReviews = new Set<Review>();
         const packageReviews = new Set<string>();
         for (const packageInfo of botData.pkgInfo) {
@@ -322,7 +353,7 @@ export class ProjectService<K extends string> {
         pull.approvedByMaintainer = false;
         pull.maintainerReviews = ProjectService.getMaintainerReviewsCore(maintainers, reviews);
         if (pull.maintainerReviews) {
-            const lastMaintainerReview = from(pull.maintainerReviews).last();
+            const lastMaintainerReview = pull.maintainerReviews.at(-1);
             if (lastMaintainerReview) {
                 pull.approvedByMaintainer =
                     lastMaintainerReview.state === "CHANGES_REQUESTED" ? false :
@@ -354,14 +385,11 @@ export class ProjectService<K extends string> {
     async listMaintainers(): Promise<TeamsListMembersResponseItem[] | undefined> {
         if (this._teamMembers === undefined && this._team) {
             try {
-                const members = await fromAsync(this._github.paginate.iterator(this._github.rest.teams.listMembersInOrg,
+                const members = await collectPaginated(this._github.paginate.iterator(this._github.rest.teams.listMembersInOrg,
                     {
                         org: this._ownerAndRepo.owner,
                         team_slug: this._team
-                    }))
-                    .selectMany(response => response.data)
-                    .whereDefined()
-                    .toArray();
+                    }), response => response.data);
                 this._teamMembers = members?.length ? members : null;
             }
             catch {
@@ -378,11 +406,9 @@ export class ProjectService<K extends string> {
         if (this._project === undefined) {
             try {
                 const iterator = this._graphql.paginate.iterator(ProjectsV2Query, { ...this._ownerAndRepo });
-                this._project = await fromAsync(iterator)
-                    .selectMany(response => response.repository?.projectsV2.nodes ?? [])
-                    .select(project => readFragment<typeof ProjectV2Fragment>(project))
-                    .where(project => project.title === this._projectName)
-                    .single();
+                const projects = (await collectPaginated(iterator, response => response.repository?.projectsV2.nodes ?? []))
+                    .map(project => readFragment<typeof ProjectV2Fragment>(project));
+                this._project = projects.find(project => project.title === this._projectName);
             }
             catch (e) {
                 this._project = null;
@@ -400,14 +426,12 @@ export class ProjectService<K extends string> {
             const { number: project_number } = await this.getProject();
             try {
                 const iterator = this._graphql.paginate.iterator(ProjectV2ViewsQuery, { ...this._ownerAndRepo, project_number });
-                this._projectViewColumnGroupByFieldName = await fromAsync(iterator)
-                    .selectMany(response => response.repository?.projectV2?.views.nodes ?? [])
-                    .select(view => readFragment<typeof ProjectV2ViewFragment>(view))
-                    .skipUntil(view => view.name === this._projectViewName).take(1)
-                    .selectMany(view => view.verticalGroupByFields?.nodes ?? [])
-                    .where(field => field.__typename === "ProjectV2SingleSelectField")
-                    .select(field => field.name)
-                    .first();
+                const views = (await collectPaginated(iterator, response => response.repository?.projectV2?.views.nodes ?? []))
+                    .map(view => readFragment<typeof ProjectV2ViewFragment>(view));
+                const view = views.find(view => view.name === this._projectViewName);
+                this._projectViewColumnGroupByFieldName = view?.verticalGroupByFields?.nodes
+                    ?.find(field => field?.__typename === "ProjectV2SingleSelectField")
+                    ?.name;
             }
             catch (e) {
                 this._projectViewColumnGroupByFieldName = null;
@@ -424,18 +448,16 @@ export class ProjectService<K extends string> {
         const { number: project_number } = await this.getProject();
         const column_field = await this.getProjectViewColumnGroupByFieldName();
         const iterator = this._graphql.paginate.iterator(ProjectItemsQuery, { ...this._ownerAndRepo, project_number, column_field });
-        return await fromAsync(iterator)
-            .selectMany(response => response.repository?.projectV2?.items.nodes ?? [])
-            .where(node => node.fieldValueByName?.__typename === "ProjectV2ItemFieldSingleSelectValue")
-            .where(node => node.content?.__typename === "PullRequest")
-            .select(node => ({
+        const projectItems = (await collectPaginated(iterator, response => response.repository?.projectV2?.items.nodes ?? []))
+            .filter(node => node.fieldValueByName?.__typename === "ProjectV2ItemFieldSingleSelectValue")
+            .filter(node => node.content?.__typename === "PullRequest")
+            .map(node => ({
                 ...node,
                 content: readFragment<typeof PullRequestFragment>(node.content as FragmentOf<typeof PullRequestFragment>)
             }) as ProjectItem)
-            .where(node => this._columnNames.includes(node.fieldValueByName.name as K))
-            .where(node => node.content.state === "OPEN")
-            .distinctBy(node => node.content.number)
-            .toArray();
+            .filter(node => this._columnNames.includes(node.fieldValueByName.name as K))
+            .filter(node => node.content.state === "OPEN");
+        return distinctBy(projectItems, node => node.content.number);
     }
 
     /**
@@ -469,15 +491,13 @@ export class ProjectService<K extends string> {
      * @param since The date (in ISO8601 format) from which to start listing comments
      */
     async listComments(pull: Pull, since?: string) {
-        return await fromAsync(this._github.paginate.iterator(this._github.rest.issues.listComments,
+        const comments = await collectPaginated(this._github.paginate.iterator(this._github.rest.issues.listComments,
             {
                 ...this._ownerAndRepo,
                 issue_number: pull.number,
                 since
-            }))
-            .selectMany(response => response.data)
-            .orderBy(comment => comment.created_at)
-            .toArray();
+            }), response => response.data);
+        return comments.sort((a, b) => a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0);
     }
 
     /**
@@ -486,32 +506,28 @@ export class ProjectService<K extends string> {
      * @param since The date (in ISO8601 format) from which to start listing commits
      */
     async listCommits(pull: Pull, since?: string) {
-        let query: AsyncQuery<Commit>;
+        let commits: Commit[];
         if (pull.commits.totalCount <= 250 || !pull.headRepository?.name) {
             // max allowed to retrieve...
-            query = fromAsync(this._github.paginate.iterator(this._github.rest.pulls.listCommits,
+            commits = await collectPaginated(this._github.paginate.iterator(this._github.rest.pulls.listCommits,
                 {
                     ...this._ownerAndRepo,
                     pull_number: pull.number
-                }))
-                .selectMany(response => response.data);
+                }), response => response.data as Commit[]);
             if (since) {
-                query = query
-                    .where(commit => !since || (commit.commit.committer?.date || "") >= since);
+                commits = commits.filter(commit => (commit.commit.committer?.date || "") >= since);
             }
         }
         else {
-            query = fromAsync(this._github.paginate.iterator(this._github.rest.repos.listCommits,
+            commits = await collectPaginated(this._github.paginate.iterator(this._github.rest.repos.listCommits,
                 {
                     owner: pull.headRepository.owner.login,
                     repo: pull.headRepository.name,
                     sha: pull.headRefOid,
                     since
-                }))
-                .selectMany(response => response.data);
+                }), response => response.data as Commit[]);
         }
-        return await query.orderBy(commit => commit.commit.committer?.date)
-            .toArray();
+        return commits.sort((a, b) => (a.commit.committer?.date ?? "") < (b.commit.committer?.date ?? "") ? -1 : (a.commit.committer?.date ?? "") > (b.commit.committer?.date ?? "") ? 1 : 0);
     }
 
     /**
@@ -523,15 +539,13 @@ export class ProjectService<K extends string> {
         const since = options?.since ?? "";
         const latest = options?.latest;
         const lastCommit = options?.lastCommit;
-        let reviews: Review[] | null | undefined = await fromAsync(this._github.paginate.iterator(this._github.rest.pulls.listReviews,
+        let reviews: Review[] | null | undefined = (await collectPaginated(this._github.paginate.iterator(this._github.rest.pulls.listReviews,
             {
                 ...this._ownerAndRepo,
                 pull_number: pull.number,
-            }))
-            .selectMany(response => response.data)
-            .where(review => !since || (review.submitted_at ?? "") >= since)
-            .where(ProjectService.isReview)
-            .toArray();
+            }), response => response.data))
+            .filter(review => !since || (review.submitted_at ?? "") >= since)
+            .filter(ProjectService.isReview);
         if (reviews?.length && latest) {
             reviews = ProjectService.latestReviews(reviews);
         }
@@ -612,7 +626,7 @@ export class ProjectService<K extends string> {
 
         // list commits and define the update date for the PR excluding bot updates
         const commits = await this.listCommits(pull);
-        pull.lastCommit = from(commits).last();
+        pull.lastCommit = commits.at(-1);
 
         const lastCommentDate = pull.lastComment?.created_at ?? "";
         const lastCommitDate = pull.lastCommit?.commit.committer?.date ?? "";

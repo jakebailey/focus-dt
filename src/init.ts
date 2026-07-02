@@ -39,7 +39,7 @@ export async function init() {
         chromePath,
         chromeProfile,
         chromeUserDataDir
-    } = await argv;
+    } = argv;
 
     if (typeof port === "number" && port <= 0) port = "random";
 

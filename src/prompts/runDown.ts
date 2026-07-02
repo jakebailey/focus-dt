@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-import chalk from "chalk";
+import chalk from "../style.js";
 import { Context } from "../context.js";
 import { Prompt, pushPrompt } from "../prompt.js";
 import { saveSettings, saveSkipped, Settings } from "../settings.js";

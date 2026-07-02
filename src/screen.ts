@@ -15,7 +15,7 @@
 */
 
 import * as readline from "readline";
-import chalk from "chalk";
+import chalk from "./style.js";
 import { wordWrap } from "./wordWrap.js";
 
 const ESC = "\x1B";

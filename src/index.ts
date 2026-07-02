@@ -14,10 +14,8 @@
    limitations under the License.
 */
 
-import chalk from "chalk";
+import chalk, { hexToRgb } from "./style.js";
 import * as fs from "fs";
-import { from } from "iterable-query";
-import { format as formatTimeago } from "timeago.js";
 import { Chrome } from "./chrome.js";
 import { CardRunDownState, ColumnRunDownState, Context, WorkArea } from "./context.js";
 import { Column, Label, ProjectItem, ProjectService } from "./github.js";
@@ -29,7 +27,6 @@ import { createMergePrompt } from "./prompts/merge.js";
 import { createRunDownPrompt } from "./prompts/runDown.js";
 import { Screen } from "./screen.js";
 import { readSkipped } from "./settings.js";
-import colorConvert from "color-convert";
 
 async function main() {
     process.title = "focus-dt";
@@ -262,10 +259,12 @@ async function main() {
         if (!projectItems || previousState?.refresh) {
             projectItems = await service.getProjectItems();
         }
-        const cards = from(projectItems)
-            .where(item => item.fieldValueByName.name === column.name)
-            [settings.oldest ? "orderBy" : "orderByDescending"](item => item.content.updatedAt)
-            .toArray();
+        const cards = projectItems
+            .filter(item => item.fieldValueByName.name === column.name)
+            .sort((a, b) =>
+                settings.oldest ?
+                    a.content.updatedAt.localeCompare(b.content.updatedAt) :
+                    b.content.updatedAt.localeCompare(a.content.updatedAt));
         const newState: ColumnRunDownState = { column, cards: cards.map(card => ({ card })), offset: 0, oldestFirst: settings.oldest, completedCount: 0, skippedCount: 0, deferredCount: 0 };
         if (previousState?.refresh) {
             // move previously seen, unchanged cards to the front
@@ -370,11 +369,15 @@ const timeFormat = new Intl.DateTimeFormat('en-US', {
     timeStyle: "short"
 });
 
+const relativeTimeFormat = new Intl.RelativeTimeFormat("en-US", {
+    numeric: "auto"
+});
+
 function formatDate(value: Date | string | number | undefined) {
     if (value === undefined) return "";
     if (typeof value === "number" || typeof value === "string") value = new Date(value);
     const now = new Date();
-    const timeago = formatTimeago(value, "en_US", { relativeDate: now });
+    const timeago = formatRelativeTime(value, now);
     const fmt =
         value.getFullYear() !== now.getFullYear() ? yearMonthDayFormat :
         value.getMonth() !== now.getMonth() || value.getDay() !== now.getDay() ? monthDayFormat :
@@ -382,12 +385,27 @@ function formatDate(value: Date | string | number | undefined) {
     return `${fmt.format(value)} (${timeago})`;
 }
 
+function formatRelativeTime(value: Date, relativeTo: Date) {
+    const seconds = Math.round((value.getTime() - relativeTo.getTime()) / 1000);
+    const units: [Intl.RelativeTimeFormatUnit, number][] = [
+        ["year", 60 * 60 * 24 * 365],
+        ["month", 60 * 60 * 24 * 30],
+        ["week", 60 * 60 * 24 * 7],
+        ["day", 60 * 60 * 24],
+        ["hour", 60 * 60],
+        ["minute", 60],
+        ["second", 1],
+    ];
+    const [unit, divisor] = units.find(([, divisor]) => Math.abs(seconds) >= divisor) ?? units[units.length - 1];
+    return relativeTimeFormat.format(Math.round(seconds / divisor), unit);
+}
+
 function colorizeLabel(label: Label) {
     let text = labelMap.get(label.name.toLowerCase());
     if (text) return text;
 
     if (label.color) {
-        const [red, green, blue] = colorConvert.hex.rgb(label.color);
+        const [red, green, blue] = hexToRgb(label.color);
         // https://en.wikipedia.org/wiki/Relative_luminance
         const luminosity = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
         if (luminosity > 0.3) {

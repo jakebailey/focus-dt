@@ -15,8 +15,8 @@
 */
 
 import * as readline from "readline";
-import chalk, { type ChalkInstance } from "chalk";
-import stripAnsi from "strip-ansi";
+import { stripVTControlCharacters } from "node:util";
+import chalk, { type StyleFunction } from "./style.js";
 
 let currentPrompt: EvaluatedPrompt<any, any> | undefined;
 const promptStack: EvaluatedPrompt<any, any>[] = [];
@@ -60,7 +60,7 @@ export interface Option<R, S> {
     readonly hidden?: boolean | Evaluatable<boolean, R, S>;
     /** Indicates whether the option is checked. */
     readonly checked?: boolean | undefined | Evaluatable<boolean | undefined, R, S>;
-    readonly checkColor?: { color: ChalkInstance | undefined } | Evaluatable<{ color: ChalkInstance | undefined } | undefined, R, S>;
+    readonly checkColor?: { color: StyleFunction | undefined } | Evaluatable<{ color: StyleFunction | undefined } | undefined, R, S>;
     readonly checkStyle?: "checkbox" | "radio" | undefined | Evaluatable<"checkbox" | "radio" | undefined, R, S>;
     /** The action to execute when the option is selected. */
     readonly action: (prompt: PromptContext<R, S>, key: Key) => void | PromiseLike<void>;
@@ -97,7 +97,7 @@ interface EvaluatedOption<R, S> {
     disabled?: boolean;                             // the evaluated value indicating whether the option is disabled.
     hidden?: boolean;                               // the evaluated value indicating whether the option is hidden.
     checked?: boolean;                              // the evaluated value indicating whether the option is checked.
-    checkColor?: { color: ChalkInstance | undefined };
+    checkColor?: { color: StyleFunction | undefined };
     checkStyle?: "checkbox" | "radio";
     formatted?: string;                             // caches the formatted output for the option.
 }
@@ -188,7 +188,7 @@ function matchKey(actual: string | Key, expected: string | Key | readonly [strin
         && expected.meta === actual.meta;
 }
 
-function formatChecked(checked: boolean | undefined, checkStyle: "checkbox" | "radio" | undefined, checkColor: ChalkInstance | undefined) {
+function formatChecked(checked: boolean | undefined, checkStyle: "checkbox" | "radio" | undefined, checkColor: StyleFunction | undefined) {
     switch (checkStyle) {
         case "radio":
             switch (checked) {
@@ -214,7 +214,7 @@ function formatOption(option: EvaluatedOption<any, any>, prompt: EvaluatedPrompt
     if (!option.formatted) {
         const checked = hasCheckedOption(prompt) ? formatChecked(option.checked, option.checkStyle, option.checkColor?.color) : "";
         const formatted = ` ${checked}> Press ${chalk.yellow(formatKey(isArray(option.key) ? option.key[0] : option.key))} to ${option.description.replace(/\.$/, "")}.\n`;
-        option.formatted = option.disabled ? chalk.gray(stripAnsi(formatted)) : formatted;
+        option.formatted = option.disabled ? chalk.gray(stripVTControlCharacters(formatted)) : formatted;
     }
     return option.formatted;
 }
