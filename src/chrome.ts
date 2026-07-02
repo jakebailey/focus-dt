@@ -31,11 +31,6 @@ const indexUrl = new URL("../assets/index.html", import.meta.url).toString();
 
 export async function getChromePath() {
     let chromePath: string | undefined;
-    if (process.platform === "win32") {
-        chromePath =
-            await regQuery(HKLM, "SOFTWARE\\Clients\\StartMenuInternet\\Google Chrome\\shell\\open\\command") ||
-            await regQuery(HKLM, "SOFTWARE\\Wow6432Node\\Clients\\StartMenuInternet\\Google Chrome\\shell\\open\\command");
-    }
     if (!chromePath) {
         const chromePaths = defaultChromePaths[process.platform] || defaultChromePaths.linux;
         if (chromePaths) {
@@ -45,6 +40,11 @@ export async function getChromePath() {
                     break;
                 }
             }
+        }
+        if (!chromePath && process.platform === "win32") {
+            chromePath =
+                await regQuery(HKLM, "SOFTWARE\\Clients\\StartMenuInternet\\Google Chrome\\shell\\open\\command") ||
+                await regQuery(HKLM, "SOFTWARE\\Wow6432Node\\Clients\\StartMenuInternet\\Google Chrome\\shell\\open\\command");
         }
     }
     if (chromePath && /^".*"$/.test(chromePath)) {

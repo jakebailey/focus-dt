@@ -186,6 +186,8 @@ export interface ProjectServiceOptions<K extends string> {
 // TODO: Make this configurable or something because we keep changing it...
 export class ProjectService<K extends string> {
     static readonly defaultProject = "Pull Request Status Board";
+    static readonly defaultProjectNumber = 1;
+    static readonly defaultProjectColumnField = "Status";
     static readonly defaultColumns = ["Needs Maintainer Review", "Needs Maintainer Action"] as const;
 
     private _github: Octokit;
@@ -445,16 +447,19 @@ export class ProjectService<K extends string> {
     }
 
     async getProjectItems(): Promise<ProjectItem[]> {
-        const { number: project_number } = await this.getProject();
-        const column_field = await this.getProjectViewColumnGroupByFieldName();
+        const project_number =
+            this._projectName === ProjectService.defaultProject ?
+                ProjectService.defaultProjectNumber :
+                (await this.getProject()).number;
+        const column_field =
+            this._projectName === ProjectService.defaultProject ?
+                ProjectService.defaultProjectColumnField :
+                await this.getProjectViewColumnGroupByFieldName();
         const iterator = this._graphql.paginate.iterator(ProjectItemsQuery, { ...this._ownerAndRepo, project_number, column_field });
         const projectItems = (await collectPaginated(iterator, response => response.repository?.projectV2?.items.nodes ?? []))
             .filter(node => node.fieldValueByName?.__typename === "ProjectV2ItemFieldSingleSelectValue")
             .filter(node => node.content?.__typename === "PullRequest")
-            .map(node => ({
-                ...node,
-                content: readFragment<typeof PullRequestFragment>(node.content as FragmentOf<typeof PullRequestFragment>)
-            }) as ProjectItem)
+            .map(node => node as ProjectItem)
             .filter(node => this._columnNames.includes(node.fieldValueByName.name as K))
             .filter(node => node.content.state === "OPEN");
         return distinctBy(projectItems, node => node.content.number);
@@ -565,7 +570,7 @@ export class ProjectService<K extends string> {
      * @param exclude A map of PR numbers to exclude to the Date they were excluded (in milliseconds since the UNIX epoch)
      */
     async getPullFromCard(card: Card, includeDrafts?: boolean, includeWip?: boolean, exclude?: Map<number, number>): Promise<GetPullResult> {
-        return this.finishGetPull(card.content, card.content.number, includeDrafts, includeWip, exclude);
+        return this.getPull(card.content.number, includeDrafts, includeWip, exclude);
     }
 
     /**
@@ -882,13 +887,20 @@ const ProjectItemsQuery = graphql(`
                                 name
                             }
                         }
-                        content { ... PullRequestFragment }
+                        content {
+                            ... on PullRequest {
+                                __typename
+                                number
+                                updatedAt
+                                state
+                            }
+                        }
                     }
                 }
             }
         }
     }
-`, [PullRequestFragment]);
+`);
 
 const PullRequestQuery = graphql(`
     query PullRequest($owner: String!, $repo: String!, $pull_number: Int!) {
@@ -901,7 +913,7 @@ const PullRequestQuery = graphql(`
 type __ProjectItemBuilder<T = NonNullable<NonNullable<NonNullable<NonNullable<ResultOf<typeof ProjectItemsQuery>>["repository"]>["projectV2"]>["items"]["nodes"]>[number]> = {
     [P in keyof T]:
         P extends "fieldValueByName" ? Extract<T[P], { __typename: "ProjectV2ItemFieldSingleSelectValue" }> :
-        P extends "content" ? ResultOf<typeof PullRequestFragment> :
+        P extends "content" ? Extract<T[P], { __typename: "PullRequest" }> :
         T[P]
 };
 
