@@ -20,6 +20,8 @@ import { FragmentOf, graphql, readFragment, ResultOf, type TadaDocumentNode } fr
 import { print } from "graphql";
 import { Octokit } from "octokit";
 
+const MAX_EXCLUDE_TIMEOUT = 1000 * 60 * 60 * 24 * 7; // check back at least once every 7 days...
+
 async function collectPaginated<TResponse, TItem>(
     iterator: AsyncIterable<TResponse>,
     selectItems: (response: TResponse) => Iterable<TItem | null | undefined>
@@ -499,7 +501,7 @@ export class ProjectService<K extends string> {
         return this._columns;
     }
 
-    shouldSkip(pull: Pull, exclude?: Map<number, number>, skipTimeout = 10 * 60 * 1000) {
+    shouldSkip(pull: Pull, exclude?: Map<number, number>, skipTimeout = MAX_EXCLUDE_TIMEOUT) {
         let excludeTimestamp = exclude?.get(pull.number);
         if (!excludeTimestamp) return false; // not excluded
         if (Date.now() >= (excludeTimestamp + skipTimeout)) return false; // past the skip window

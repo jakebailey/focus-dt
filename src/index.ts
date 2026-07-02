@@ -71,7 +71,7 @@ async function main() {
         currentPull: undefined,
         workArea: undefined,
         skipped: new Map<number, number>(readSkipped()?.skipped),
-        skipTimeout: 10 * 60 * 1000, // 10 minutes, in MS
+        skipTimeout: 7 * 24 * 60 * 60 * 1000, // one week, in MS
         screen,
         service,
         log,
