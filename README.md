@@ -103,7 +103,7 @@ When you start `focus-dt` (and have been properly authenticated), you will see a
     - When the PR was last updated.
     - Tags assigned to the PR (see 4 for more information)
 4.  The PR's tags are listed here, with ansi colors matching the tag color on GitHub (if possible).
-5.  If present, this section indicates the PR status provided by @typescript-bot.
+5.  If present, this section indicates the PR status provided by @typescript-bot or @typescript-automation.
 6.  If owners or maintainers have already reviewed the PR, this section lists the review status
     and whether the PR has been updated since the review was made (in which case it will be marked 
     `[outdated]`)

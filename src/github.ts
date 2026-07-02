@@ -596,7 +596,7 @@ export class ProjectService<K extends string> {
         const skipTimestamp = exclude?.get(pull.number);
         const skipUntil = skipTimestamp ? new Date(skipTimestamp).toISOString() : undefined;
         for (const comment of await this.listComments(pull)) {
-            if (comment.user?.login === "typescript-bot") {
+            if (comment.user?.login === "typescript-bot" || comment.user?.login === "typescript-automation" || comment.user?.login === "typescript-automation[bot]") {
                 if (!pull.botWelcomeComment && /<!--typescript_bot_welcome-->/i.test(comment.body || "")) {
                     pull.botWelcomeComment = comment;
                 }
