@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-import { spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 export interface AuthStatus {
     authenticated: boolean | undefined;
@@ -22,11 +22,16 @@ export interface AuthStatus {
 }
 
 export function ghInstalled() {
-    const { status } = spawnSync("gh", ["--version"], {
-        stdio: "ignore",
-        windowsHide: true
-    });
-    return status === 0;
+    try {
+        execFileSync("gh", ["--version"], {
+            stdio: "ignore",
+            windowsHide: true
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
 }
 
 export async function ghAuthStatus(token: string | undefined): Promise<AuthStatus> {
@@ -43,13 +48,11 @@ export async function ghAuthStatus(token: string | undefined): Promise<AuthStatu
 
 export function ghAuthRefresh() {
     try {
-        const { status } = spawnSync("gh", ["auth", "refresh", "--hostname", "github.com", "--scopes", "read:project"], {
+        execFileSync("gh", ["auth", "refresh", "--hostname", "github.com", "--scopes", "read:project"], {
             stdio: "inherit",
             windowsHide: true
         });
-        if (status === 0) {
-            return ghAuthToken();
-        }
+        return ghAuthToken();
     }
     catch {
         return undefined;
@@ -58,13 +61,11 @@ export function ghAuthRefresh() {
 
 export function ghAuthLogin() {
     try {
-        const { status } = spawnSync("gh", ["auth", "login", "--hostname", "github.com", "--scopes", "read:project", "--web"], {
+        execFileSync("gh", ["auth", "login", "--hostname", "github.com", "--scopes", "read:project", "--web"], {
             stdio: "inherit",
             windowsHide: true
         });
-        if (status === 0) {
-            return ghAuthToken();
-        }
+        return ghAuthToken();
     }
     catch {
         return undefined;
@@ -73,12 +74,12 @@ export function ghAuthLogin() {
 
 export function ghAuthToken() {
     try {
-        const { stdout, status } = spawnSync("gh", ["auth", "token"], {
+        const stdout = execFileSync("gh", ["auth", "token"], {
             encoding: "utf8",
             stdio: "pipe",
             windowsHide: true
         });
-        return status ? undefined : stdout;
+        return stdout;
     }
     catch {
         return undefined;
