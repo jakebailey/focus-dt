@@ -46,6 +46,26 @@ function distinctBy<T, K>(items: T[], key: (item: T) => K) {
     return result;
 }
 
+function isPendingReviewAlreadyExistsError(error: unknown) {
+    if (!error || typeof error !== "object") return false;
+    if (!("status" in error) || error.status !== 422) return false;
+    const parts: string[] = [];
+    if ("message" in error && typeof error.message === "string") {
+        parts.push(error.message);
+    }
+    const response = "response" in error && error.response && typeof error.response === "object" ? error.response : undefined;
+    const data = response && "data" in response ? response.data : undefined;
+    if (data) {
+        try {
+            parts.push(JSON.stringify(data));
+        }
+        catch {
+            // ignore non-serializable response data
+        }
+    }
+    return /pending review|review already exists|only.*one.*review/i.test(parts.join("\n"));
+}
+
 /** A GitHub Project Board */
 export interface Project extends ProjectsListForRepoResponseItem { }
 
@@ -560,6 +580,23 @@ export class ProjectService<K extends string> {
         return reviews?.length ? reviews : undefined;
     }
 
+    async getPendingReview(pull: Pull) {
+        const me = await this.getAuthenticatedUser();
+        if (!me) return undefined;
+
+        const reviews = await collectPaginated(this._github.paginate.iterator(this._github.rest.pulls.listReviews,
+            {
+                ...this._ownerAndRepo,
+                pull_number: pull.number,
+            }), response => response.data);
+        for (let i = reviews.length - 1; i >= 0; i--) {
+            const review = reviews[i];
+            if (review.user?.id === me.id && review.state === "PENDING") {
+                return review;
+            }
+        }
+    }
+
     /**
      * Gets the pull request associated with a card.
      * @param card The project board card.
@@ -709,10 +746,19 @@ export class ProjectService<K extends string> {
             return;
         }
 
-        const { data: draftReview } = await this._github.rest.pulls.createReview({
-            ...this._ownerAndRepo,
-            pull_number: pull.number,
-        });
+        let draftReview = await this.getPendingReview(pull);
+        if (!draftReview) {
+            try {
+                ({ data: draftReview } = await this._github.rest.pulls.createReview({
+                    ...this._ownerAndRepo,
+                    pull_number: pull.number,
+                }));
+            }
+            catch (e) {
+                if (!isPendingReviewAlreadyExistsError(e)) throw e;
+                draftReview = await this.getPendingReview(pull);
+            }
+        }
         if (!draftReview) return;
 
         await this._github.rest.pulls.submitReview({
