@@ -14,10 +14,11 @@
    limitations under the License.
 */
 
-import yargs = require("yargs");
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 import { getDefaultSettingsFile, readSettings } from "./settings.js";
 
-export const options = yargs
+export const options = yargs(hideBin(process.argv))
     .usage("$0 [options]")
     // authentication
     .option("username", {

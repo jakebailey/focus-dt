@@ -29,7 +29,7 @@ import { createMergePrompt } from "./prompts/merge.js";
 import { createRunDownPrompt } from "./prompts/runDown.js";
 import { Screen } from "./screen.js";
 import { readSkipped } from "./settings.js";
-import colorConvert = require("color-convert");
+import colorConvert from "color-convert";
 
 async function main() {
     process.title = "focus-dt";
