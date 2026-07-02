@@ -24,8 +24,6 @@ export interface AuthStatus {
 export function ghInstalled() {
     const { status } = spawnSync("gh", ["--version"], {
         stdio: "ignore",
-        shell: true,
-        windowsVerbatimArguments: true,
         windowsHide: true
     });
     return status === 0;
@@ -47,8 +45,6 @@ export function ghAuthRefresh() {
     try {
         const { status } = spawnSync("gh", ["auth", "refresh", "--hostname", "github.com", "--scopes", "read:project"], {
             stdio: "inherit",
-            shell: true,
-            windowsVerbatimArguments: true,
             windowsHide: true
         });
         if (status === 0) {
@@ -64,8 +60,6 @@ export function ghAuthLogin() {
     try {
         const { status } = spawnSync("gh", ["auth", "login", "--hostname", "github.com", "--scopes", "read:project", "--web"], {
             stdio: "inherit",
-            shell: true,
-            windowsVerbatimArguments: true,
             windowsHide: true
         });
         if (status === 0) {
@@ -82,8 +76,6 @@ export function ghAuthToken() {
         const { stdout, status } = spawnSync("gh", ["auth", "token"], {
             encoding: "utf8",
             stdio: "pipe",
-            shell: true,
-            windowsVerbatimArguments: true,
             windowsHide: true
         });
         return status ? undefined : stdout;
