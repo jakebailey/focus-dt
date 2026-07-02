@@ -96,11 +96,19 @@ async function main() {
 
     while (true) {
         context.currentPull = undefined;
-        if (settings.needsAction && (shouldPopulateState(context.actionState) || context.actionState?.refresh)) {
+        const shouldPopulateAction = settings.needsAction && (shouldPopulateState(context.actionState) || context.actionState?.refresh);
+        const shouldPopulateReview = settings.needsReview && (shouldPopulateState(context.reviewState) || context.actionState?.refresh);
+        if (shouldPopulateAction || shouldPopulateReview) {
+            screen.clearProgress({ clearLog: false, clearPull: false });
+            screen.addProgress("Loading project items...");
+            screen.render();
+        }
+
+        if (shouldPopulateAction) {
             context.actionState = await populateState(columns["Needs Maintainer Action"], context.actionState);
         }
 
-        if (settings.needsReview && (shouldPopulateState(context.reviewState) || context.actionState?.refresh)) {
+        if (shouldPopulateReview) {
             context.reviewState = await populateState(columns["Needs Maintainer Review"], context.reviewState);
         }
 

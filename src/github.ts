@@ -801,7 +801,7 @@ const ProjectV2Fragment = graphql(`
 const ProjectsV2Query = graphql(`
     query ProjectsQuery($owner: String!, $repo: String!, $cursor: String) {
         repository(owner: $owner, name: $repo) {
-            projectsV2(first: 1, after: $cursor) {
+            projectsV2(first: 100, after: $cursor) {
                 nodes { ...ProjectV2Fragment }
                 pageInfo { hasNextPage endCursor }
             }
@@ -829,7 +829,7 @@ const ProjectV2ViewsQuery = graphql(`
     query ProjectV2ViewsQuery($owner: String!, $repo: String!, $project_number: Int!, $cursor: String) {
         repository(owner: $owner, name: $repo) {
             projectV2(number: $project_number) {
-                views(first: 1, after: $cursor) {
+                views(first: 100, after: $cursor) {
                     pageInfo { hasNextPage, endCursor }
                     nodes { ...ProjectV2ViewFragment }
                 }
@@ -872,7 +872,7 @@ const ProjectItemsQuery = graphql(`
     query ProjectItems($owner: String!, $repo: String!, $project_number: Int!, $column_field: String!, $cursor: String) {
         repository(owner: $owner, name: $repo) {
             projectV2(number: $project_number) {
-                items(first: 20, after: $cursor) {
+                items(first: 100, after: $cursor) {
                     pageInfo { hasNextPage endCursor }
                     nodes {
                         __typename

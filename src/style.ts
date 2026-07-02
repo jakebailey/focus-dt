@@ -14,9 +14,21 @@
    limitations under the License.
 */
 
-import { styleText, type InspectColor } from "node:util";
+import { styleText } from "node:util";
 
 export type StyleFunction = (text: string) => string;
+type StyleName =
+    | "bold"
+    | "cyan"
+    | "gray"
+    | "green"
+    | "red"
+    | "redBright"
+    | "reset"
+    | "underline"
+    | "white"
+    | "whiteBright"
+    | "yellow";
 
 type Style = ((strings: TemplateStringsArray, ...values: unknown[]) => string) & {
     bgHex(color: string): StyleFunction;
@@ -32,7 +44,7 @@ type Style = ((strings: TemplateStringsArray, ...values: unknown[]) => string) &
     yellow: StyleFunction;
 };
 
-function applyStyle(format: InspectColor | readonly InspectColor[], text: string) {
+function applyStyle(format: StyleName | StyleName[], text: string) {
     return styleText(format, text, { stream: process.stdout });
 }
 
@@ -46,7 +58,7 @@ function rgbFromHex(color: string) {
     return [(int >> 16) & 0xff, (int >> 8) & 0xff, int & 0xff] as const;
 }
 
-function style(format: InspectColor): StyleFunction {
+function style(format: StyleName): StyleFunction {
     return text => applyStyle(format, text);
 }
 
@@ -56,7 +68,7 @@ function styleTemplate(strings: TemplateStringsArray, ...values: unknown[]) {
         text += String(values[i]) + strings[i + 1];
     }
     return text.replace(/\{([^{}\s]+)(?: ([^{}]*))?\}/g, (_, format: string, content = "") =>
-        format === "reset" ? content : applyStyle(format.split(".") as InspectColor[], content)
+        format === "reset" ? content : applyStyle(format.split(".") as StyleName[], content)
     );
 }
 
